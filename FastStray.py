@@ -31,7 +31,7 @@ class FastStray():
     
     params: dict
     position: np.ndarray 
-    space: int = 2
+    space: int = 3
     time: int = 1
     test_coeff: int = 0
     error: np.ndarray = np.random.exponential(0.1, (1000, 3)) * test_coeff
@@ -44,7 +44,10 @@ class FastStray():
     
     def initalise(self):
         """Sets up object components after trajectory is imported"""
+        #gets the height of input array
         self.sample_size = self.position.shape[0]
+
+        #grabs sizes of the two arrays
         self.spatial_dim = (self.sample_size, self.space)
         self.temporal_dim = (self.sample_size, self.time)
 
@@ -54,10 +57,30 @@ class FastStray():
          stamps 𝑆1) using moving average filter -- alpha param defining the window 
          of the filter -- the filter is computing on the whole trajectory 
         """
+        #Splits input array into position and time components
         self.spatial_position = self.position[:,:self.space]
         self.temporal_position = self.position[:,self.space].reshape(-1, 1)
+
+        #creates an array (idx) where each row counts 0 to 16, then once it hits 16 shifts over to 1 - 17... etc.
+        #ie: where alpha is 10
+        # 00: range(0,9)
+        # 01: range(0,10)
+        # ...
+        # 07: range(0,16) 
+        # 08: range(0,16) 
+        # 09: range(0,16)
+        # 10: range(0,16)
+        # 11: range(1,17)
+        # 11: range(2,18)
+        # ...
+
+        #creates an index per input column element which represents the indicies that the moveing average looks at.   
         idx = self.get_index(param='alpha')
+
+        #maps the mean position function useing the idx array per column of the spatial position array.
         new_spatial_position = np.array([*map(self.mean_position, idx)])
+
+        #returns filtered positions to object wide variables
         self.filtering_spatial_position, self.filtering_temporal_position = new_spatial_position, self.temporal_position
 
     def mean_position(self, index):
@@ -76,10 +99,16 @@ class FastStray():
     def get_index(self, param):
         return [*map(self.get_params_idx, range(self.sample_size), [self.params[param]]*self.sample_size, [self.sample_size]*self.sample_size)]
 
+    #creates array of linearity coefficients
     def update_coeff(self):
+        #creates indicy array per item with beta window size
         idx = self.get_index(param='beta')
+
+        #applies beta window to the diffrent arrays and returns an array of the elements in the window
         p_mu = map(self.sub_spatial_array, idx)
         t_mu = map(self.sub_temporal_array, idx)
+
+        #applies linearity corrolation funciton (ksi_func) to the sub matricies and saves it in the coeff array
         self.coeff = [*map(self.ksi_func, p_mu, t_mu)]
 
     def update_max_coeff(self):
@@ -101,6 +130,7 @@ class FastStray():
 
     @staticmethod 
     def get_params_idx(idx, value, sample_size):
+        ''' gets infinum and supremum of the index'''
         inf, sup = max(0, idx - value), min(idx + value, sample_size)
         return np.arange(inf, sup)
 
@@ -112,21 +142,26 @@ class FastStray():
 
     @staticmethod
     def ksi_func(pp, tt):
-        ppx, ppy, = pp.T
-        #ppx, ppy, ppz = pp.T
+        #parces array elements
+        #ppx, ppy, = pp.T
+        ppx, ppy, ppz = pp.T
+
+        #calculates linerarity coeficient per element 
+        #https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.pearsonr.html
         rat_x = corr(ppx, tt.flatten())[0] ** 2
         rat_y = corr(ppy, tt.flatten())[0] ** 2
-        return 1./ rat_x + 1./ rat_y
+        rat_z = corr(ppz, tt.flatten())[0] ** 2
+        
 
-        #rat_z = corr(ppz, tt.flatten())[0] ** 2
-        #return 1./ rat_x + 1./ rat_y + 1./ rat_z
+        #return 1./ rat_x + 1./ rat_y
+        return 1./ rat_x + 1./ rat_y + 1./ rat_z
     
   
     def compression_rate(self):
         return 1. - (len(self.simplified_temporal_position) / len(self.temporal_position))
 
 def main():
-    fst = FastStray(params={'alpha':10, 'beta': 10, 'gamma': 10}, position = np.vstack([np.linspace(-3, 3, 1000), np.sin(3*np.linspace(-3, 3, 1000)), np.linspace(0, 1, 1000)]).T)
+    fst = FastStray(params={'alpha':10, 'beta': 10, 'gamma': 10}, position = np.vstack([np.linspace(-3, 3, 1000),np.linspace(-3, 3, 1000), np.sin(3*np.linspace(-3, 3, 1000)), np.linspace(0, 1, 1000)]).T)
     fst.run()
     print(f"compression rate is about: {fst.compression_rate()}")
     plt.scatter(fst.simplified_spatial_position[:, 0], fst.simplified_spatial_position[:, 1])
